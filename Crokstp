@@ -1,0 +1,2017 @@
+-- ============================================================
+-- CROKS HUB v13 + ABA TP
+-- PARTE 1 de 2
+-- ============================================================
+
+local Players = game:GetService("Players")
+local TS = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local CS = game:GetService("CollectionService")
+local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local LP = Players.LocalPlayer
+local ICONE = "rbxassetid://120740005842911"
+
+pcall(function()
+    if setclipboard then setclipboard("https://discord.gg/fTT3BmF5v9")
+    elseif toclipboard then toclipboard("https://discord.gg/fTT3BmF5v9") end
+end)
+
+local Networking
+pcall(function()
+    Networking = RS:WaitForChild("Packages", 10)
+    Networking = Networking and Networking:WaitForChild("Networking", 10)
+end)
+
+local Assets
+pcall(function()
+    local node = RS:FindFirstChild("Data")
+    node = node and node:FindFirstChild("Assets")
+    if node then Assets = require(node) end
+end)
+local assetDir = (Assets and (Assets.Directory or Assets)) or {}
+
+local CONFIG = {
+    AutoBug = true, AntiTrap = true, AutoBat = false,
+    PriorizarOvo = true, AntiKB = true, ESP = true,
+    BatCooldown = 0.15,
+}
+
+-- ============================================================
+-- BYPASS
+-- ============================================================
+local Bypass = {
+    Enabled = true, InProgress = false,
+    LastChar = nil, OriginalHumanoid = nil, CloneHumanoid = nil, _conn = nil,
+    OrigParented = false,
+}
+
+local PROPS_TO_COPY = {
+    "WalkSpeed","JumpPower","JumpHeight","UseJumpPower","MaxHealth","Health",
+    "AutoRotate","AutoJumpEnabled","BreakJointsOnDeath","CameraOffset","DisplayDistanceType",
+    "HealthDisplayDistance","HealthDisplayType","NameDisplayDistance","NameOcclusion",
+    "RequiresNeck","WalkJumpPower","HipHeight","RigType","WalkSpeedCheck",
+    "EvaluateStateMachine","MaxSlopeAngle","AutomaticScalingEnabled",
+}
+
+local STATE_ENUMS = {
+    Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll,
+    Enum.HumanoidStateType.GettingUp, Enum.HumanoidStateType.Landed,
+    Enum.HumanoidStateType.Flying, Enum.HumanoidStateType.Freefall,
+    Enum.HumanoidStateType.Seated, Enum.HumanoidStateType.PlatformStanding,
+    Enum.HumanoidStateType.Dead, Enum.HumanoidStateType.Physics,
+    Enum.HumanoidStateType.Climbing, Enum.HumanoidStateType.Swimming,
+    Enum.HumanoidStateType.Running, Enum.HumanoidStateType.RunningNoPhysics,
+    Enum.HumanoidStateType.StrafingNoPhysics, Enum.HumanoidStateType.Jumping,
+}
+
+local function copyProperties(orig, clone)
+    for _, prop in ipairs(PROPS_TO_COPY) do
+        pcall(function()
+            local ok, v = pcall(function() return orig[prop] end)
+            if ok and v ~= nil then pcall(function() clone[prop] = v end) end
+        end)
+    end
+    pcall(function()
+        for k, v in pairs(orig:GetAttributes()) do
+            pcall(function() clone:SetAttribute(k, v) end)
+        end
+    end)
+end
+
+local function captureStates(hum)
+    local s = {}
+    for _, st in ipairs(STATE_ENUMS) do
+        local ok, e = pcall(function() return hum:GetStateEnabled(st) end)
+        if ok then s[st] = e end
+    end
+    local cur
+    pcall(function() cur = hum:GetState() end)
+    return s, cur
+end
+
+local function reapplyStates(hum, s, cur)
+    for st, e in pairs(s or {}) do
+        pcall(function() hum:SetStateEnabled(st, e) end)
+    end
+    if cur then pcall(function() hum:ChangeState(cur) end) end
+end
+
+function Bypass.Apply(character)
+    if Bypass.InProgress then return false end
+    Bypass.InProgress = true
+
+    character = character or LP.Character
+    if not character then Bypass.InProgress = false; return false end
+
+    if Bypass.CloneHumanoid and Bypass.CloneHumanoid.Parent
+       and Bypass.CloneHumanoid.Health > 0 then
+        Bypass.InProgress = false
+        return true
+    end
+
+    local orig = character:FindFirstChildOfClass("Humanoid")
+    if not orig then
+        local ok = pcall(function() orig = character:WaitForChild("Humanoid", 5) end)
+        if not ok or not orig then Bypass.InProgress = false; return false end
+    end
+
+    local clone
+    local okC = pcall(function() clone = orig:Clone() end)
+    if not okC or not clone then Bypass.InProgress = false; return false end
+
+    local animMove = false
+    local anim = orig:FindFirstChildOfClass("Animator")
+    if anim then animMove = pcall(function() anim.Parent = clone end) end
+
+    copyProperties(orig, clone)
+    local states, cur = captureStates(orig)
+
+    pcall(function() clone.Name = "Humanoid" end)
+    local okP = pcall(function() clone.Parent = character end)
+    if not okP then
+        if animMove and anim and anim.Parent ~= orig then
+            pcall(function() anim.Parent = orig end)
+        end
+        Bypass.InProgress = false
+        return false
+    end
+
+    task.wait(0.03)
+    pcall(function() orig.Parent = nil end)
+
+    task.wait(0.03)
+    pcall(function()
+        if Workspace.CurrentCamera then Workspace.CurrentCamera.CameraSubject = clone end
+    end)
+    reapplyStates(clone, states, cur)
+
+    Bypass.LastChar = character
+    Bypass.OriginalHumanoid = orig
+    Bypass.CloneHumanoid = clone
+    Bypass.OrigParented = false
+    Bypass.Enabled = true
+    Bypass.InProgress = false
+    return true
+end
+
+function Bypass.IsActive()
+    return Bypass.CloneHumanoid ~= nil
+        and Bypass.CloneHumanoid.Parent ~= nil
+        and Bypass.CloneHumanoid.Health > 0
+end
+
+function Bypass.Desativar()
+    pcall(function()
+        if Bypass.CloneHumanoid and Bypass.CloneHumanoid.Parent then
+            Bypass.CloneHumanoid:Destroy()
+        end
+        Bypass.CloneHumanoid = nil
+        Bypass.Enabled = false
+
+        if Bypass.OriginalHumanoid and Bypass.LastChar then
+            pcall(function()
+                Bypass.OriginalHumanoid.Parent = Bypass.LastChar
+                Bypass.OrigParented = true
+            end)
+            if Workspace.CurrentCamera then
+                Workspace.CurrentCamera.CameraSubject = Bypass.OriginalHumanoid
+            end
+        end
+    end)
+end
+
+function Bypass.Reativar()
+    if Bypass.OrigParented then
+        Bypass.OriginalHumanoid = nil
+        Bypass.CloneHumanoid = nil
+        Bypass.OrigParented = false
+    end
+    Bypass.Enabled = true
+end
+
+_G.CroksBypass = Bypass
+
+-- ============================================================
+-- GOD MODE GLOBAL
+-- ============================================================
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        local c = LP.Character
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                if hum.Health < hum.MaxHealth then hum.Health = hum.MaxHealth end
+                hum.BreakJointsOnDeath = false
+            end)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        local c = LP.Character
+        local hum = c and c:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                local st = hum:GetState()
+                if st == Enum.HumanoidStateType.Ragdoll
+                   or st == Enum.HumanoidStateType.Physics
+                   or st == Enum.HumanoidStateType.FallingDown then
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end)
+        end
+    end
+end)
+
+-- ============================================================
+-- BUG BOSS
+-- ============================================================
+local gravacao = {
+  {0.301,512.73,70.58,-362.57},{0.317,946.14,70.58,-332.05},{0.320,512.73,70.58,-362.57},
+  {0.332,946.14,70.58,-332.05},{0.335,512.73,70.58,-362.57},{0.345,946.14,70.58,-332.05},
+  {0.349,512.73,70.58,-362.57},{0.358,946.14,70.58,-332.05},{0.361,512.73,70.58,-362.57},
+  {0.369,946.14,70.58,-332.05},{0.372,512.73,70.58,-362.57},{0.384,946.14,70.58,-332.05},
+  {0.388,512.73,70.58,-362.57},{0.407,946.14,70.58,-332.05},{0.419,512.73,70.58,-362.57},
+  {0.451,946.14,70.58,-332.05},{0.457,512.73,70.58,-362.57},{0.477,946.14,70.58,-332.05},
+  {0.489,512.73,70.58,-362.57},{0.499,946.14,70.58,-332.05},{0.502,512.73,70.58,-362.57},
+  {0.511,946.14,70.58,-332.05},{0.514,512.73,70.58,-362.57},{0.563,946.14,70.58,-332.05},
+  {0.639,946.14,70.58,-332.05},{0.714,946.14,70.58,-332.05},{0.730,946.14,70.58,-332.05},
+  {0.743,946.14,70.58,-332.05},{0.767,946.14,70.58,-332.05},{0.803,946.14,70.58,-332.05},
+  {0.818,946.14,70.58,-332.05},
+}
+
+local executando, AutoBugAtivo, AntiTrapAtivo, MonitorandoGuard, TemOvo = false, true, true, false, false
+local WalkSpeedOriginal = 16
+
+local ToastContainer
+local function getToastParent()
+    if gethui then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
+    end
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then return cg end
+    return LP:WaitForChild("PlayerGui")
+end
+
+local function Toast(msg, cor)
+    if not ToastContainer or not ToastContainer.Parent then
+        ToastContainer = Instance.new("ScreenGui")
+        ToastContainer.Name = "CroksToast"
+        ToastContainer.ResetOnSpawn = false
+        ToastContainer.IgnoreGuiInset = true
+        ToastContainer.Parent = getToastParent()
+    end
+    cor = cor or Color3.fromRGB(120, 70, 240)
+    local f = Instance.new("Frame", ToastContainer)
+    f.Size = UDim2.new(0, 300, 0, 50)
+    f.Position = UDim2.new(1, 320, 0, 20)
+    f.BackgroundColor3 = Color3.fromRGB(10, 12, 20)
+    f.BorderSizePixel = 0
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 10)
+    local s = Instance.new("UIStroke", f)
+    s.Color = cor; s.Thickness = 2
+    local bar = Instance.new("Frame", f)
+    bar.Size = UDim2.new(0, 4, 1, 0)
+    bar.BackgroundColor3 = cor
+    bar.BorderSizePixel = 0
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
+    local t = Instance.new("TextLabel", f)
+    t.Size = UDim2.new(1, -20, 1, 0)
+    t.Position = UDim2.new(0, 14, 0, 0)
+    t.BackgroundTransparency = 1
+    t.Text = msg
+    t.TextColor3 = Color3.fromRGB(255, 255, 255)
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 13
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.TextWrapped = true
+    TS:Create(f, TweenInfo.new(0.35, Enum.EasingStyle.Back), {
+        Position = UDim2.new(1, -320, 0, 20)
+    }):Play()
+    task.delay(3, function()
+        local tw = TS:Create(f, TweenInfo.new(0.3), { Position = UDim2.new(1, 320, 0, 20) })
+        tw:Play()
+        tw.Completed:Connect(function() f:Destroy() end)
+    end)
+end
+
+local function AdicionarRipple(btn)
+    btn.MouseButton1Down:Connect(function()
+        local r = Instance.new("Frame", btn)
+        r.Size = UDim2.new(0, 0, 0, 0)
+        r.Position = UDim2.new(0.5, 0, 0.5, 0)
+        r.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        r.BackgroundTransparency = 0.7
+        r.BorderSizePixel = 0
+        r.ZIndex = 10
+        Instance.new("UICorner", r).CornerRadius = UDim.new(1, 0)
+        TS:Create(r, TweenInfo.new(0.5), { Size = UDim2.new(1.5, 0, 3, 0), BackgroundTransparency = 1 }):Play()
+        task.delay(0.55, function() pcall(function() r:Destroy() end) end)
+    end)
+end
+
+local function executar()
+    if executando then return end
+    executando = true
+    task.delay(5, function() executando = false end)
+    task.spawn(function()
+        local t0 = tick()
+        for _, ev in ipairs(gravacao) do
+            if not TemOvo then break end
+            local c = LP.Character
+            local h = c and c:FindFirstChild("HumanoidRootPart")
+            if not h then break end
+            local w = ev[1] - (tick() - t0)
+            if w > 0 then task.wait(w) end
+            pcall(function() h.CFrame = CFrame.new(ev[2], ev[3], ev[4]) end)
+        end
+        executando = false
+    end)
+end
+
+local function AtivarSpeed()
+    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if h then WalkSpeedOriginal = h.WalkSpeed; h.WalkSpeed = 200 end
+end
+
+local function DesativarSpeed()
+    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if h then h.WalkSpeed = WalkSpeedOriginal end
+end
+
+local function DesativarHitboxes()
+    if not AntiTrapAtivo then return end
+    for _, trap in ipairs(CS:GetTagged("PlacedTrap")) do
+        local hb = trap:FindFirstChild("Hitbox")
+        if hb and hb:IsA("BasePart") and hb.CanTouch then
+            pcall(function() hb.CanTouch = false end)
+        end
+    end
+end
+
+task.spawn(function()
+    while true do DesativarHitboxes(); task.wait(0.3) end
+end)
+
+CS:GetInstanceAddedSignal("PlacedTrap"):Connect(function(trap)
+    if AntiTrapAtivo and trap:GetAttribute("Owner") ~= LP.Name then
+        task.defer(function()
+            local hb = trap:FindFirstChild("Hitbox")
+            if hb and hb:IsA("BasePart") then pcall(function() hb.CanTouch = false end) end
+        end)
+    end
+end)
+
+local function AcharGuardiao()
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil, math.huge end
+    local ga = workspace:FindFirstChild("World")
+    ga = ga and ga:FindFirstChild("Areas")
+    ga = ga and ga:FindFirstChild("GuardAreas")
+    if not ga then return nil, math.huge end
+    local maisP, menorD = nil, math.huge
+    for _, area in ipairs(ga:GetChildren()) do
+        local g = area:FindFirstChild("Guard")
+        local ghrp = g and g:FindFirstChild("HumanoidRootPart")
+        if ghrp then
+            local d = (ghrp.Position - hrp.Position).Magnitude
+            if d < menorD then menorD = d; maisP = g end
+        end
+    end
+    return maisP, menorD
+end
+
+local function IniciarAutoBug()
+    if MonitorandoGuard then return end
+    MonitorandoGuard = true
+    AtivarSpeed(); executar()
+    task.spawn(function()
+        local t0 = tick()
+        while MonitorandoGuard and AutoBugAtivo and TemOvo and (tick() - t0) < 30 do
+            local g, dist = AcharGuardiao()
+            if g and dist < 500 then
+                local estado = g:GetAttribute("GuardState")
+                if estado == "Chasing" then
+                    if not executando then executar() end
+                    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+                    if h then h.WalkSpeed = 200 end
+                elseif estado == "Idle" or estado == "Sleeping" then
+                    MonitorandoGuard = false; DesativarSpeed()
+                    Toast("Deu certo - volte para a base", Color3.fromRGB(80, 220, 130))
+                    break
+                end
+            else
+                MonitorandoGuard = false; DesativarSpeed()
+                Toast("Deu certo - volte para a base", Color3.fromRGB(80, 220, 130))
+                break
+            end
+            task.wait(0.15)
+        end
+        if MonitorandoGuard then
+            MonitorandoGuard = false; DesativarSpeed()
+            Toast("Timeout", Color3.fromRGB(240, 180, 60))
+        end
+    end)
+end
+
+local FEC = Networking and Networking:FindFirstChild("RE/EggWorld/FieldEggCarry")
+if FEC and FEC:IsA("RemoteEvent") then
+    FEC.OnClientEvent:Connect(function()
+        TemOvo = true
+        if not AutoBugAtivo then return end
+        Toast("Ovo detectado", Color3.fromRGB(60, 220, 130))
+        AtivarSpeed(); executar(); IniciarAutoBug()
+    end)
+end
+
+local FED = Networking and Networking:FindFirstChild("RE/EggWorld/FieldEggDrop")
+if FED and FED:IsA("RemoteEvent") then
+    FED.OnClientEvent:Connect(function()
+        TemOvo = false; MonitorandoGuard = false; executando = false
+        DesativarSpeed()
+        Toast("Ovo solto", Color3.fromRGB(80, 180, 255))
+    end)
+end
+
+-- AUTO BAT
+local function EhBat(t) return t and t:IsA("Tool") and t:GetAttribute("IsBat") == true end
+
+local function AcharBat()
+    local char = LP.Character
+    if not char then return nil, nil end
+    for _, t in ipairs(char:GetChildren()) do if EhBat(t) then return t, "eq" end end
+    local bp = LP:FindFirstChildOfClass("Backpack")
+    if bp then for _, t in ipairs(bp:GetChildren()) do if EhBat(t) then return t, "moch" end end end
+    return nil, nil
+end
+
+local function EquiparBat()
+    local char = LP.Character
+    if not char then return false end
+    local bat, onde = AcharBat()
+    if not bat or onde == "eq" then return bat ~= nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    pcall(function() hum:EquipTool(bat) end)
+    local t0 = tick()
+    while bat.Parent ~= char and (tick() - t0) < 0.5 do RunService.Heartbeat:Wait() end
+    return bat.Parent == char
+end
+
+local function BatEquipada()
+    local char = LP.Character
+    if not char then return nil end
+    for _, t in ipairs(char:GetChildren()) do if EhBat(t) then return t end end
+end
+
+local function TaComOvo(player)
+    local c = player.Character
+    if not c then return false end
+    for _, t in ipairs(c:GetChildren()) do
+        if t:IsA("Tool") then
+            local it = t:GetAttribute("ItemType")
+            local uid = t:GetAttribute("UID")
+            if it == "Egg" or uid ~= nil then return true end
+            if string.find(string.lower(t.Name), "egg") then return true end
+        end
+    end
+    if c:GetAttribute("IsCarrying") == true then return true end
+    return player:GetAttribute("IsCarrying") == true
+end
+
+local function AcharAlvoBat()
+    local comOvo, semOvo = nil, nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            local c = p.Character
+            local hum = c and c:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local hl = c:FindFirstChild("BatTargetHighlight", true)
+                if hl and hl:IsA("Highlight") and hl.Enabled ~= false then
+                    if TaComOvo(p) then if not comOvo then comOvo = p end
+                    else if not semOvo then semOvo = p end end
+                end
+            end
+        end
+    end
+    if CONFIG.PriorizarOvo then return comOvo or semOvo end
+    return semOvo or comOvo
+end
+
+task.spawn(function()
+    while true do
+        if CONFIG.AutoBat then
+            pcall(function()
+                local bat, onde = AcharBat()
+                if bat and onde == "moch" then EquiparBat() end
+            end)
+            task.wait(0.3)
+        else task.wait(0.5) end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if CONFIG.AutoBat then
+            pcall(function()
+                local alvo = AcharAlvoBat()
+                local bat = BatEquipada()
+                if alvo and bat then pcall(function() bat:Activate() end) end
+            end)
+            task.wait(CONFIG.BatCooldown)
+        else task.wait(0.3) end
+    end
+end)
+
+-- ANTI-KB
+local ultimaPosKB = nil
+
+RunService.Heartbeat:Connect(function()
+    if not CONFIG.AntiKB then return end
+    local char = LP.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hum or not hrp or hum.Health <= 0 then return end
+    local rd = tonumber(LP:GetAttribute("RagdollEndTime"))
+    if not (rd and rd > workspace:GetServerTimeNow()) and not hum.PlatformStand then
+        local s = hum:GetState()
+        if s ~= Enum.HumanoidStateType.Physics and s ~= Enum.HumanoidStateType.Ragdoll then
+            ultimaPosKB = hrp.Position
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if CONFIG.AntiKB then
+            pcall(function()
+                local char = LP.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then return end
+                local rd = tonumber(LP:GetAttribute("RagdollEndTime"))
+                local tem = rd and rd > workspace:GetServerTimeNow()
+                local s = hum:GetState()
+                local fis = s == Enum.HumanoidStateType.Physics
+                         or s == Enum.HumanoidStateType.Ragdoll
+                         or s == Enum.HumanoidStateType.FallingDown
+                if tem or fis then
+                    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                    if ultimaPosKB then
+                        local diff = (hrp.Position - ultimaPosKB).Magnitude
+                        if diff > 15 then
+                            hrp.CFrame = CFrame.new(ultimaPosKB, ultimaPosKB + hrp.CFrame.LookVector)
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(0.01)
+    end
+end)
+
+-- UTIL
+local function FmtValor(n)
+    n = tonumber(n) or 0
+    if n >= 1e12 then return string.format("%.2fT", n/1e12) end
+    if n >= 1e9 then return string.format("%.2fB", n/1e9) end
+    if n >= 1e6 then return string.format("%.2fM", n/1e6) end
+    if n >= 1e3 then return string.format("%.1fK", n/1e3) end
+    return tostring(math.floor(n))
+end
+
+local function InfoOvo(cat)
+    local i = assetDir[cat]
+    if type(i) ~= "table" then
+        return { nome = tostring(cat), raridade = "Comum",
+                 cor = Color3.fromRGB(200,200,200), rate = 0, icone = nil }
+    end
+    local r = type(i.Rarity) == "table" and i.Rarity or {}
+    local icon = i.Icon
+    if icon ~= nil then
+        if tonumber(icon) then icon = "rbxassetid://"..tostring(icon)
+        else icon = tostring(icon) end
+    end
+    return {
+        nome = i.DisplayName or i.Name or tostring(cat),
+        raridade = r.DisplayName or r._id or "Comum",
+        cor = typeof(r.Color) == "Color3" and r.Color or Color3.fromRGB(200,200,200),
+        rate = tonumber(i.EarningRate) or 0,
+        icone = icon,
+    }
+end
+
+local function AreaNome(id)
+    local m = { Forest="Floresta", Desert="Deserto", Snow="Neve", Lake="Lago",
+        Jungle="Selva", Volcano="Vulcão", Prehistoric="Pré-histórico",
+        Cosmic="Cósmico", ["Abyss Ocean"]="Oceano Abissal",
+        ["Cherry Blossom"]="Cerejeira", ["Light Dark"]="Luz/Sombra",
+        ["Titan Temple"]="Templo Titã" }
+    return m[id] or tostring(id or "Campo")
+end
+
+local espSnap, espSnapAt = nil, 0
+local function ESPGetSnapshot()
+    if espSnap and os.clock() - espSnapAt < 0.3 then return espSnap end
+    local EggState
+    pcall(function()
+        local n = RS:FindFirstChild("Client")
+        n = n and n:FindFirstChild("EggState")
+        if n then EggState = require(n) end
+    end)
+    if EggState and EggState.ReadFieldEggs then
+        local ok, d = pcall(EggState.ReadFieldEggs)
+        if ok and type(d) == "table" and type(d.Records) == "table" then
+            espSnap, espSnapAt = d.Records, os.clock()
+            return espSnap
+        end
+    end
+    if Networking then
+        local rf = Networking:FindFirstChild("RF/EggWorld/AskFieldEggSnapshot")
+        if rf and rf:IsA("RemoteFunction") then
+            local ok, r = pcall(rf.InvokeServer, rf)
+            if ok and type(r) == "table" and type(r.Records) == "table" then
+                espSnap, espSnapAt = r.Records, os.clock()
+                return espSnap
+            end
+        end
+    end
+end
+
+local function ESPOvosOrdenados()
+    local records = ESPGetSnapshot()
+    if not records then return {} end
+    local lista = {}
+    for _, egg in pairs(records) do
+        if type(egg) == "table" and egg.Uid
+           and typeof(egg.BottomCFrame) == "CFrame"
+           and (egg.State == "Slot" or egg.State == "Dropped") then
+            local info = InfoOvo(egg.AssetCategory)
+            if info.rate > 0 then
+                local sc = tonumber(egg.AssetScale) or 1
+                local mult = sc > 5 and (sc/5)^1.2 * 19.637875755794113 or sc^1.85
+                table.insert(lista, {
+                    egg = egg, info = info,
+                    valor = info.rate * mult,
+                    areaId = egg.AreaId and tostring(egg.AreaId) or "Campo",
+                })
+            end
+        end
+    end
+    table.sort(lista, function(a, b) return a.valor > b.valor end)
+    return lista
+end
+
+local parent
+if gethui then local ok, h = pcall(gethui); if ok and h then parent = h end end
+if not parent then
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then parent = cg end
+end
+if not parent then parent = LP:WaitForChild("PlayerGui") end
+
+-- ESP
+local ESPGui = Instance.new("ScreenGui")
+ESPGui.Name = "CroksESP"
+ESPGui.ResetOnSpawn = false
+ESPGui.IgnoreGuiInset = true
+ESPGui.Parent = parent
+
+local BB = Instance.new("BillboardGui")
+BB.AlwaysOnTop = true
+BB.LightInfluence = 0
+BB.MaxDistance = math.huge
+BB.Size = UDim2.fromOffset(220, 70)
+BB.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
+BB.Enabled = false
+BB.Parent = ESPGui
+
+local BBf = Instance.new("Frame", BB)
+BBf.Size = UDim2.fromScale(1, 1)
+BBf.BackgroundColor3 = Color3.fromRGB(10, 12, 20)
+BBf.BackgroundTransparency = 0.1
+BBf.BorderSizePixel = 0
+Instance.new("UICorner", BBf).CornerRadius = UDim.new(0, 9)
+
+local BBb = Instance.new("UIStroke", BBf)
+BBb.Thickness = 2
+
+local BBbar = Instance.new("Frame", BBf)
+BBbar.Size = UDim2.new(0, 4, 1, -10)
+BBbar.Position = UDim2.new(0, 5, 0, 5)
+BBbar.BorderSizePixel = 0
+Instance.new("UICorner", BBbar).CornerRadius = UDim.new(0, 2)
+
+local BBiF = Instance.new("Frame", BBf)
+BBiF.Size = UDim2.fromOffset(40, 40)
+BBiF.Position = UDim2.new(0, 14, 0.5, -20)
+BBiF.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+BBiF.BorderSizePixel = 0
+Instance.new("UICorner", BBiF).CornerRadius = UDim.new(0, 7)
+
+local BBiS = Instance.new("UIStroke", BBiF)
+BBiS.Thickness = 1.2
+
+local BBi = Instance.new("ImageLabel", BBiF)
+BBi.Size = UDim2.fromScale(0.9, 0.9)
+BBi.Position = UDim2.fromScale(0.05, 0.05)
+BBi.BackgroundTransparency = 1
+BBi.ScaleType = Enum.ScaleType.Fit
+
+local BBnome = Instance.new("TextLabel", BBf)
+BBnome.Size = UDim2.new(1, -70, 0, 18)
+BBnome.Position = UDim2.new(0, 62, 0, 8)
+BBnome.BackgroundTransparency = 1
+BBnome.Font = Enum.Font.GothamBlack
+BBnome.TextSize = 13
+BBnome.TextXAlignment = Enum.TextXAlignment.Left
+BBnome.TextTruncate = Enum.TextTruncate.AtEnd
+
+local BBrar = Instance.new("TextLabel", BBf)
+BBrar.Size = UDim2.new(1, -70, 0, 12)
+BBrar.Position = UDim2.new(0, 62, 0, 26)
+BBrar.BackgroundTransparency = 1
+BBrar.Font = Enum.Font.GothamBold
+BBrar.TextSize = 9
+BBrar.TextXAlignment = Enum.TextXAlignment.Left
+
+local BBinfo = Instance.new("TextLabel", BBf)
+BBinfo.Size = UDim2.new(1, -70, 0, 16)
+BBinfo.Position = UDim2.new(0, 62, 0, 40)
+BBinfo.BackgroundTransparency = 1
+BBinfo.Font = Enum.Font.GothamBold
+BBinfo.TextSize = 10
+BBinfo.TextXAlignment = Enum.TextXAlignment.Left
+
+local BBrank = Instance.new("TextLabel", BBf)
+BBrank.Size = UDim2.fromOffset(30, 30)
+BBrank.Position = UDim2.new(1, -38, 0, 6)
+BBrank.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+BBrank.BackgroundTransparency = 0.3
+BBrank.Text = "1º"
+BBrank.TextColor3 = Color3.fromRGB(255, 255, 255)
+BBrank.Font = Enum.Font.GothamBlack
+BBrank.TextSize = 12
+BBrank.BorderSizePixel = 0
+Instance.new("UICorner", BBrank).CornerRadius = UDim.new(0, 6)
+
+local BBhl = Instance.new("Highlight")
+BBhl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+BBhl.FillTransparency = 0.7
+BBhl.OutlineTransparency = 0
+BBhl.Parent = ESPGui
+
+local BBanchor = Instance.new("Part")
+BBanchor.Name = "CroksESPDinAnchor"
+BBanchor.Anchored = true
+BBanchor.CanCollide = false
+BBanchor.CanQuery = false
+BBanchor.CanTouch = false
+BBanchor.Transparency = 1
+BBanchor.Size = Vector3.new(0.1, 0.1, 0.1)
+BBanchor.Parent = workspace
+
+task.spawn(function()
+    while true do
+        pcall(function()
+            if CONFIG.ESP then
+                local lista = ESPOvosOrdenados()
+                if #lista > 0 then
+                    local m = lista[1]
+                    local info = m.info
+                    BBnome.Text = info.nome
+                    BBnome.TextColor3 = info.cor
+                    BBrar.Text = string.upper(info.raridade)
+                    BBrar.TextColor3 = info.cor
+                    BBinfo.Text = AreaNome(m.areaId) .. "  •  $" .. FmtValor(m.valor) .. "/s"
+                    BBinfo.TextColor3 = Color3.fromRGB(120, 255, 170)
+                    BBrank.Text = "1º"
+                    BBb.Color = info.cor
+                    BBbar.BackgroundColor3 = info.cor
+                    BBiS.Color = info.cor
+                    BBhl.FillColor = info.cor
+                    BBhl.OutlineColor = info.cor
+                    if info.icone then BBi.Image = info.icone; BBi.Visible = true
+                    else BBi.Visible = false end
+                    BBanchor.CFrame = m.egg.BottomCFrame
+                    BB.Adornee = BBanchor
+                    BB.Enabled = true
+                    BBhl.Adornee = BBanchor
+                else
+                    BB.Enabled = false
+                    BBhl.Adornee = nil
+                end
+            else
+                BB.Enabled = false
+                BBhl.Adornee = nil
+            end
+        end)
+        task.wait(0.3)
+    end
+end)
+
+-- ============================================================
+-- FIM DA PARTE 1 - CONTINUA NA PARTE 2
+-- ============================================================
+-- ============================================================
+-- PARTE 2 de 2 — UI + ABA TP
+-- ============================================================
+
+local estaCarregando = false
+local posicaoSalva = nil
+
+if Networking then
+    local FEC_TP = Networking:FindFirstChild("RE/EggWorld/FieldEggCarry")
+    if FEC_TP and FEC_TP:IsA("RemoteEvent") then
+        FEC_TP.OnClientEvent:Connect(function() estaCarregando = true end)
+    end
+    local FED_TP = Networking:FindFirstChild("RE/EggWorld/FieldEggDrop")
+    if FED_TP and FED_TP:IsA("RemoteEvent") then
+        FED_TP.OnClientEvent:Connect(function() estaCarregando = false end)
+    end
+end
+
+local C = {
+    bg      = Color3.fromRGB(8, 10, 16),
+    panel   = Color3.fromRGB(14, 17, 26),
+    accent  = Color3.fromRGB(120, 70, 240),
+    accent2 = Color3.fromRGB(70, 160, 255),
+    success = Color3.fromRGB(50, 230, 140),
+    off     = Color3.fromRGB(45, 50, 65),
+    off2    = Color3.fromRGB(30, 35, 50),
+    text    = Color3.fromRGB(255, 255, 255),
+    textDim = Color3.fromRGB(160, 175, 200),
+    border  = Color3.fromRGB(35, 45, 70),
+    warn    = Color3.fromRGB(240, 180, 60),
+    ouro    = Color3.fromRGB(255, 210, 70),
+}
+
+local SG = Instance.new("ScreenGui")
+SG.Name = "CroksHub"
+SG.ResetOnSpawn = false
+SG.IgnoreGuiInset = true
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+SG.Parent = parent
+
+local BtnFloat = Instance.new("TextButton", SG)
+BtnFloat.Size = UDim2.new(0,64,0,64)
+BtnFloat.Position = UDim2.new(0,20,0.5,-32)
+BtnFloat.BackgroundColor3 = C.accent
+BtnFloat.Text = ""
+BtnFloat.BorderSizePixel = 0
+BtnFloat.AutoButtonColor = false
+BtnFloat.Active = true
+Instance.new("UICorner", BtnFloat).CornerRadius = UDim.new(1,0)
+
+local FImg = Instance.new("ImageLabel", BtnFloat)
+FImg.Size = UDim2.new(1,0,1,0)
+FImg.BackgroundTransparency = 1
+FImg.Image = ICONE
+FImg.ScaleType = Enum.ScaleType.Fit
+Instance.new("UICorner", FImg).CornerRadius = UDim.new(1,0)
+
+local FStroke = Instance.new("UIStroke", BtnFloat)
+FStroke.Color = C.accent2
+FStroke.Thickness = 2
+FStroke.Transparency = 0.3
+
+local Main = Instance.new("Frame", SG)
+Main.Size = UDim2.new(0, 380, 0, 520)
+Main.Position = UDim2.new(0.5, -190, 0.5, -260)
+Main.BackgroundColor3 = C.bg
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Visible = false
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
+
+local MainStroke = Instance.new("UIStroke", Main)
+MainStroke.Color = C.border
+MainStroke.Thickness = 1.5
+
+local Head = Instance.new("Frame", Main)
+Head.Size = UDim2.new(1, 0, 0, 68)
+Head.BackgroundColor3 = C.panel
+Head.BorderSizePixel = 0
+Head.Active = true
+Instance.new("UICorner", Head).CornerRadius = UDim.new(0, 16)
+
+local HG = Instance.new("UIGradient", Head)
+HG.Color = ColorSequence.new(C.accent, C.accent2)
+
+local HIcone = Instance.new("Frame", Head)
+HIcone.Size = UDim2.new(0,44,0,44)
+HIcone.Position = UDim2.new(0,14,0.5,-22)
+HIcone.BackgroundColor3 = C.accent
+HIcone.BorderSizePixel = 0
+Instance.new("UICorner", HIcone).CornerRadius = UDim.new(1,0)
+
+local HImg = Instance.new("ImageLabel", HIcone)
+HImg.Size = UDim2.new(1,0,1,0)
+HImg.BackgroundTransparency = 1
+HImg.Image = ICONE
+HImg.ScaleType = Enum.ScaleType.Fit
+Instance.new("UICorner", HImg).CornerRadius = UDim.new(1,0)
+
+local Titulo = Instance.new("TextLabel", Head)
+Titulo.Size = UDim2.new(0,220,0,26)
+Titulo.Position = UDim2.new(0,68,0,14)
+Titulo.BackgroundTransparency = 1
+Titulo.Text = "CROKS HUB"
+Titulo.TextColor3 = C.text
+Titulo.Font = Enum.Font.GothamBlack
+Titulo.TextSize = 20
+Titulo.TextXAlignment = Enum.TextXAlignment.Left
+
+local SubTitulo = Instance.new("TextLabel", Head)
+SubTitulo.Size = UDim2.new(0,220,0,14)
+SubTitulo.Position = UDim2.new(0,69,0,38)
+SubTitulo.BackgroundTransparency = 1
+SubTitulo.Text = "Auto Bug + TP  -  v13"
+SubTitulo.TextColor3 = C.textDim
+SubTitulo.Font = Enum.Font.GothamMedium
+SubTitulo.TextSize = 10
+SubTitulo.TextXAlignment = Enum.TextXAlignment.Left
+
+local BtnMin = Instance.new("TextButton", Head)
+BtnMin.Size = UDim2.new(0,32,0,32)
+BtnMin.Position = UDim2.new(1,-82,0,18)
+BtnMin.BackgroundColor3 = Color3.fromRGB(0,0,0)
+BtnMin.BackgroundTransparency = 0.55
+BtnMin.Text = "-"
+BtnMin.TextColor3 = C.text
+BtnMin.Font = Enum.Font.GothamBold
+BtnMin.TextSize = 16
+BtnMin.BorderSizePixel = 0
+BtnMin.AutoButtonColor = false
+Instance.new("UICorner", BtnMin).CornerRadius = UDim.new(0,8)
+
+local BtnClose = Instance.new("TextButton", Head)
+BtnClose.Size = UDim2.new(0,32,0,32)
+BtnClose.Position = UDim2.new(1,-44,0,18)
+BtnClose.BackgroundColor3 = Color3.fromRGB(0,0,0)
+BtnClose.BackgroundTransparency = 0.55
+BtnClose.Text = "X"
+BtnClose.TextColor3 = C.text
+BtnClose.Font = Enum.Font.GothamBold
+BtnClose.TextSize = 14
+BtnClose.BorderSizePixel = 0
+BtnClose.AutoButtonColor = false
+Instance.new("UICorner", BtnClose).CornerRadius = UDim.new(0,8)
+
+do
+    local drag, ds, sp
+    Head.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+           or i.UserInputType == Enum.UserInputType.Touch then
+            local mx, my = i.Position.X, i.Position.Y
+            local function hit(b)
+                local bp, bs = b.AbsolutePosition, b.AbsoluteSize
+                return mx >= bp.X and mx <= bp.X + bs.X and my >= bp.Y and my <= bp.Y + bs.Y
+            end
+            if hit(BtnMin) or hit(BtnClose) then return end
+            drag = true; ds = i.Position; sp = Main.Position
+        end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if not drag then return end
+        if i.UserInputType == Enum.UserInputType.MouseMovement
+           or i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - ds
+            Main.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X,
+                                       sp.Y.Scale, sp.Y.Offset + d.Y)
+        end
+    end)
+    UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+           or i.UserInputType == Enum.UserInputType.Touch then
+            drag = false
+        end
+    end)
+end
+
+local setaEsq = Instance.new("TextLabel", Main)
+setaEsq.Size = UDim2.fromOffset(20, 36)
+setaEsq.Position = UDim2.new(0, 4, 0, 76)
+setaEsq.BackgroundTransparency = 1
+setaEsq.Text = "◀"
+setaEsq.TextColor3 = C.accent2
+setaEsq.Font = Enum.Font.GothamBold
+setaEsq.TextSize = 16
+setaEsq.Visible = false
+setaEsq.ZIndex = 5
+
+local setaDir = Instance.new("TextLabel", Main)
+setaDir.Size = UDim2.fromOffset(20, 36)
+setaDir.Position = UDim2.new(1, -24, 0, 76)
+setaDir.BackgroundTransparency = 1
+setaDir.Text = "▶"
+setaDir.TextColor3 = C.accent2
+setaDir.Font = Enum.Font.GothamBold
+setaDir.TextSize = 16
+setaDir.Visible = true
+setaDir.ZIndex = 5
+
+local abasNomes = {"Principal", "Anti", "Visual", "TP", "Ajuda"}
+local TAB_W = 85
+local TAB_GAP = 6
+local tabsScroll = Instance.new("ScrollingFrame", Main)
+tabsScroll.Size = UDim2.new(1, -48, 0, 36)
+tabsScroll.Position = UDim2.new(0, 24, 0, 76)
+tabsScroll.BackgroundTransparency = 1
+tabsScroll.BorderSizePixel = 0
+tabsScroll.ScrollBarThickness = 0
+tabsScroll.ScrollingDirection = Enum.ScrollingDirection.X
+tabsScroll.ElasticBehavior = Enum.ElasticBehavior.Never
+tabsScroll.CanvasSize = UDim2.new(0, (#abasNomes * (TAB_W + TAB_GAP)), 0, 0)
+tabsScroll.ScrollBarImageTransparency = 1
+
+local tabBtns = {}
+local pages = {}
+
+for i, nome in ipairs(abasNomes) do
+    local b = Instance.new("TextButton", tabsScroll)
+    b.Size = UDim2.fromOffset(TAB_W, 36)
+    b.Position = UDim2.fromOffset((i-1) * (TAB_W + TAB_GAP), 0)
+    b.BackgroundColor3 = i == 1 and C.accent or C.panel
+    b.Text = nome
+    b.TextColor3 = i == 1 and C.text or C.textDim
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 9)
+    tabBtns[nome] = b
+
+    local p = Instance.new("ScrollingFrame", Main)
+    p.Size = UDim2.new(1, -20, 1, -180)
+    p.Position = UDim2.new(0, 10, 0, 122)
+    p.BackgroundTransparency = 1
+    p.BorderSizePixel = 0
+    p.ScrollBarThickness = 4
+    p.ScrollBarImageColor3 = C.accent
+    p.CanvasSize = UDim2.new(0, 0, 0, 0)
+    p.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    p.Visible = i == 1
+    pages[nome] = p
+end
+
+local function trocarAba(nome)
+    for n2, b2 in pairs(tabBtns) do
+        local ativo = n2 == nome
+        b2.BackgroundColor3 = ativo and C.accent or C.panel
+        b2.TextColor3 = ativo and C.text or C.textDim
+        pages[n2].Visible = ativo
+    end
+end
+
+for n, b in pairs(tabBtns) do
+    b.MouseButton1Click:Connect(function() trocarAba(n) end)
+end
+
+local function atualizarSetas()
+    local pos = tabsScroll.CanvasPosition.X
+    local maxScroll = math.max(0, tabsScroll.AbsoluteCanvasSize.X - tabsScroll.AbsoluteWindowSize.X)
+    setaEsq.Visible = pos > 5
+    setaDir.Visible = pos < maxScroll - 5
+end
+
+tabsScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(atualizarSetas)
+tabsScroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(function()
+    task.defer(atualizarSetas)
+end)
+task.defer(atualizarSetas)
+
+local function Botao(pai, y, txt, cor1, cor2, strokeCor)
+    local b = Instance.new("TextButton", pai)
+    b.Size = UDim2.new(1, -4, 0, 52)
+    b.Position = UDim2.new(0, 2, 0, y)
+    b.BackgroundColor3 = cor1
+    b.Text = ""
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.ClipsDescendants = true
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+    local g = Instance.new("UIGradient", b)
+    g.Color = ColorSequence.new(cor1, cor2)
+    local s = Instance.new("UIStroke", b)
+    s.Color = strokeCor
+    s.Thickness = 1
+    s.Transparency = 0.5
+    local sh = Instance.new("TextLabel", b)
+    sh.Size = UDim2.new(1,0,1,0)
+    sh.Position = UDim2.new(0,1,0,1)
+    sh.BackgroundTransparency = 1
+    sh.Text = txt
+    sh.TextColor3 = Color3.fromRGB(0,0,0)
+    sh.TextTransparency = 0.4
+    sh.Font = Enum.Font.GothamBold
+    sh.TextSize = 15
+    sh.ZIndex = 2
+    local tx = Instance.new("TextLabel", b)
+    tx.Size = UDim2.new(1,0,1,0)
+    tx.BackgroundTransparency = 1
+    tx.Text = txt
+    tx.TextColor3 = C.text
+    tx.Font = Enum.Font.GothamBold
+    tx.TextSize = 15
+    tx.ZIndex = 3
+    AdicionarRipple(b)
+    return b, g, s, tx
+end
+
+local pP = pages["Principal"]
+local BtnAuto, GAuto, SAuto, TAuto = Botao(pP, 0, "Auto Bug Boss  -  ON", C.success, C.accent2, Color3.fromRGB(120,255,170))
+local BtnManual, GManual, SManual, TManual = Botao(pP, 60, "Boss Manual", C.accent, C.accent2, Color3.fromRGB(180,130,255))
+local BtnAT, GAT, SAT, TAT = Botao(pP, 120, "Anti-Trap  -  Ativado", C.success, C.accent2, Color3.fromRGB(120,255,170))
+
+local StatusP = Instance.new("TextLabel", pP)
+StatusP.Size = UDim2.new(1,0,0,40)
+StatusP.Position = UDim2.new(0,0,0,180)
+StatusP.BackgroundTransparency = 1
+StatusP.Text = "Pronto para usar"
+StatusP.TextColor3 = C.textDim
+StatusP.Font = Enum.Font.GothamMedium
+StatusP.TextSize = 12
+StatusP.TextXAlignment = Enum.TextXAlignment.Left
+
+local pA = pages["Anti"]
+local BtnBat, GBat, SBat, TBat = Botao(pA, 0, "Auto Bat  -  OFF", C.off, C.off2, Color3.fromRGB(100,100,120))
+local BtnPrior, GPrior, SPrior, TPrior = Botao(pA, 60, "Só bater com ovo  -  ON", C.success, C.accent2, Color3.fromRGB(120,255,170))
+local BtnKB, GKB, SKB, TKB = Botao(pA, 120, "Anti-Knockback  -  ON", C.success, C.accent2, Color3.fromRGB(120,255,170))
+
+local pV = pages["Visual"]
+local BtnESP, GESP, SESP, TESP = Botao(pV, 0, "ESP Melhor Ovo  -  ON", C.success, C.accent2, Color3.fromRGB(120,255,170))
+
+local StatusV = Instance.new("TextLabel", pV)
+StatusV.Size = UDim2.new(1,0,0,80)
+StatusV.Position = UDim2.new(0,0,0,60)
+StatusV.BackgroundTransparency = 1
+StatusV.Text = "Mostra o ovo mais valioso disponivel."
+StatusV.TextColor3 = C.textDim
+StatusV.Font = Enum.Font.Gotham
+StatusV.TextSize = 11
+StatusV.TextXAlignment = Enum.TextXAlignment.Left
+StatusV.TextWrapped = true
+
+local pAj = pages["Ajuda"]
+pAj.BackgroundColor3 = C.panel
+Instance.new("UICorner", pAj).CornerRadius = UDim.new(0,10)
+
+local ajudaTexto = [[
+CROKS HUB v13
+
+─── TP ───
+1. Aba TP
+2. GO → voa pro ovo
+3. Pega o ovo
+4. VOLTAR → ativa bypass e volta
+
+─── ATALHOS ───
+K menu  B boss  T trap
+G bat   H kb    E esp
+
+Kevin | _.kevib._
+]]
+
+local lblAj = Instance.new("TextLabel", pAj)
+lblAj.Size = UDim2.new(1, -20, 0, 0)
+lblAj.AutomaticSize = Enum.AutomaticSize.Y
+lblAj.Position = UDim2.fromOffset(10, 10)
+lblAj.BackgroundTransparency = 1
+lblAj.Text = ajudaTexto
+lblAj.TextColor3 = C.textDim
+lblAj.Font = Enum.Font.Code
+lblAj.TextSize = 11
+lblAj.TextXAlignment = Enum.TextXAlignment.Left
+lblAj.TextYAlignment = Enum.TextYAlignment.Top
+lblAj.TextWrapped = true
+
+-- ABA TP
+local pT = pages["TP"]
+
+local RARIDADES = {"DIVINE","ETERNAL","SECRET","COSMIC","MYTHIC","LEGENDARY","EPIC","RARE","UNCOMMON","COMMON"}
+local filtrosLigados = {}
+
+local lblFiltro = Instance.new("TextLabel", pT)
+lblFiltro.Size = UDim2.new(1, -20, 0, 14)
+lblFiltro.Position = UDim2.new(0, 10, 0, 4)
+lblFiltro.BackgroundTransparency = 1
+lblFiltro.Text = "FILTRO"
+lblFiltro.TextColor3 = C.textDim
+lblFiltro.Font = Enum.Font.GothamBold
+lblFiltro.TextSize = 9
+lblFiltro.TextXAlignment = Enum.TextXAlignment.Left
+
+local scrollChk = Instance.new("ScrollingFrame", pT)
+scrollChk.Size = UDim2.new(1, -20, 0, 70)
+scrollChk.Position = UDim2.new(0, 10, 0, 20)
+scrollChk.BackgroundTransparency = 1
+scrollChk.BorderSizePixel = 0
+scrollChk.ScrollBarThickness = 3
+scrollChk.ScrollBarImageColor3 = C.accent
+scrollChk.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollChk.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local gridFiltro = Instance.new("UIGridLayout", scrollChk)
+gridFiltro.CellSize = UDim2.new(0, 108, 0, 22)
+gridFiltro.CellPadding = UDim2.new(0, 4, 0, 4)
+
+for i, r in ipairs(RARIDADES) do
+    local b = Instance.new("TextButton", scrollChk)
+    b.BackgroundColor3 = C.panel
+    b.Text = ""
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.LayoutOrder = i
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+
+    local box = Instance.new("Frame", b)
+    box.Size = UDim2.new(0, 12, 0, 12)
+    box.Position = UDim2.new(0, 5, 0.5, -6)
+    box.BackgroundColor3 = C.bg
+    box.BorderSizePixel = 0
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 3)
+
+    local boxStroke = Instance.new("UIStroke", box)
+    boxStroke.Color = C.border
+    boxStroke.Thickness = 1.5
+
+    local check = Instance.new("TextLabel", box)
+    check.Size = UDim2.new(1,0,1,0)
+    check.BackgroundTransparency = 1
+    check.Text = "✓"
+    check.TextColor3 = C.success
+    check.Font = Enum.Font.GothamBlack
+    check.TextSize = 11
+    check.Visible = false
+
+    local lbl = Instance.new("TextLabel", b)
+    lbl.Size = UDim2.new(1, -22, 1, 0)
+    lbl.Position = UDim2.new(0, 22, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = r
+    lbl.TextColor3 = C.textDim
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 9
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+
+    b.MouseButton1Click:Connect(function()
+        if filtrosLigados[r] then
+            filtrosLigados[r] = nil
+            boxStroke.Color = C.border
+            check.Visible = false
+            lbl.TextColor3 = C.textDim
+        else
+            filtrosLigados[r] = true
+            boxStroke.Color = C.success
+            check.Visible = true
+            lbl.TextColor3 = C.success
+        end
+        if _G.TPRenderLista then _G.TPRenderLista() end
+    end)
+end
+
+local StatusTP = Instance.new("TextLabel", pT)
+StatusTP.Size = UDim2.new(1, -20, 0, 16)
+StatusTP.Position = UDim2.new(0, 10, 0, 96)
+StatusTP.BackgroundTransparency = 1
+StatusTP.Text = "Carregando..."
+StatusTP.TextColor3 = C.textDim
+StatusTP.Font = Enum.Font.GothamMedium
+StatusTP.TextSize = 10
+StatusTP.TextXAlignment = Enum.TextXAlignment.Left
+
+local BtnGO = Instance.new("TextButton", pT)
+BtnGO.Size = UDim2.new(0.5, -14, 0, 34)
+BtnGO.Position = UDim2.new(0, 10, 0, 116)
+BtnGO.BackgroundColor3 = C.success
+BtnGO.Text = "GO (só ida)"
+BtnGO.TextColor3 = C.text
+BtnGO.Font = Enum.Font.GothamBlack
+BtnGO.TextSize = 13
+BtnGO.BorderSizePixel = 0
+BtnGO.AutoButtonColor = false
+Instance.new("UICorner", BtnGO).CornerRadius = UDim.new(0, 9)
+
+local GGO = Instance.new("UIGradient", BtnGO)
+GGO.Color = ColorSequence.new(C.success, C.accent2)
+
+local BtnVoltar = Instance.new("TextButton", pT)
+BtnVoltar.Size = UDim2.new(0.5, -14, 0, 34)
+BtnVoltar.Position = UDim2.new(0.5, 4, 0, 116)
+BtnVoltar.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+BtnVoltar.Text = "🔙 VOLTAR"
+BtnVoltar.TextColor3 = C.text
+BtnVoltar.Font = Enum.Font.GothamBlack
+BtnVoltar.TextSize = 13
+BtnVoltar.BorderSizePixel = 0
+BtnVoltar.AutoButtonColor = false
+Instance.new("UICorner", BtnVoltar).CornerRadius = UDim.new(0, 9)
+
+local BtnSalvar = Instance.new("TextButton", pT)
+BtnSalvar.Size = UDim2.new(0.5, -14, 0, 22)
+BtnSalvar.Position = UDim2.new(0, 10, 0, 156)
+BtnSalvar.BackgroundColor3 = C.accent
+BtnSalvar.Text = "📍 SALVAR BASE"
+BtnSalvar.TextColor3 = C.text
+BtnSalvar.Font = Enum.Font.GothamBold
+BtnSalvar.TextSize = 10
+BtnSalvar.BorderSizePixel = 0
+BtnSalvar.AutoButtonColor = false
+Instance.new("UICorner", BtnSalvar).CornerRadius = UDim.new(0, 7)
+
+local BtnIrBase = Instance.new("TextButton", pT)
+BtnIrBase.Size = UDim2.new(0.5, -14, 0, 22)
+BtnIrBase.Position = UDim2.new(0.5, 4, 0, 156)
+BtnIrBase.BackgroundColor3 = C.accent2
+BtnIrBase.Text = "🏠 IR PRA BASE"
+BtnIrBase.TextColor3 = C.text
+BtnIrBase.Font = Enum.Font.GothamBold
+BtnIrBase.TextSize = 10
+BtnIrBase.BorderSizePixel = 0
+BtnIrBase.AutoButtonColor = false
+Instance.new("UICorner", BtnIrBase).CornerRadius = UDim.new(0, 7)
+
+local lblBase = Instance.new("TextLabel", pT)
+lblBase.Size = UDim2.new(1, -20, 0, 12)
+lblBase.Position = UDim2.new(0, 10, 0, 182)
+lblBase.BackgroundTransparency = 1
+lblBase.Text = "Base: nao salva"
+lblBase.TextColor3 = C.textDim
+lblBase.Font = Enum.Font.Code
+lblBase.TextSize = 8
+lblBase.TextXAlignment = Enum.TextXAlignment.Left
+
+local ScrollOvos = Instance.new("ScrollingFrame", pT)
+ScrollOvos.Size = UDim2.new(1, -20, 0, 280)
+ScrollOvos.Position = UDim2.new(0, 10, 0, 198)
+ScrollOvos.BackgroundTransparency = 1
+ScrollOvos.BorderSizePixel = 0
+ScrollOvos.ScrollBarThickness = 4
+ScrollOvos.ScrollBarImageColor3 = C.accent
+ScrollOvos.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollOvos.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local LLTP = Instance.new("UIListLayout", ScrollOvos)
+LLTP.SortOrder = Enum.SortOrder.LayoutOrder
+LLTP.Padding = UDim.new(0, 4)
+
+local ovosFiltrados = {}
+local ovoSelecionado = nil
+local tpAndando = false
+local vooAtivo = false
+local TP_posInicial = nil
+
+local function TPRenderLista()
+    for _, c in ipairs(ScrollOvos:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("Frame") then c:Destroy() end
+    end
+    ovosFiltrados = {}
+
+    local lista = ESPOvosOrdenados()
+    if #lista == 0 then
+        StatusTP.Text = "Aguardando ovos..."
+        StatusTP.TextColor3 = C.textDim
+        return
+    end
+
+    local algumFiltro = false
+    for _ in pairs(filtrosLigados) do algumFiltro = true; break end
+
+    for _, item in ipairs(lista) do
+        local rar = string.upper(item.info.raridade)
+        if not algumFiltro or filtrosLigados[rar] then
+            table.insert(ovosFiltrados, item)
+        end
+    end
+
+    for i, item in ipairs(ovosFiltrados) do
+        local info = item.info
+        local ehTop1 = (i == 1 and not algumFiltro)
+
+        local linha = Instance.new("TextButton", ScrollOvos)
+        linha.Size = UDim2.new(1, -6, 0, 44)
+        linha.BackgroundColor3 = ehTop1 and Color3.fromRGB(30, 26, 10) or C.panel
+        linha.Text = ""
+        linha.BorderSizePixel = 0
+        linha.AutoButtonColor = false
+        linha.LayoutOrder = i
+        Instance.new("UICorner", linha).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke", linha)
+        stroke.Color = ehTop1 and C.ouro or C.border
+        stroke.Thickness = ehTop1 and 2 or 1
+
+        local barra = Instance.new("Frame", linha)
+        barra.Size = UDim2.new(0, 3, 1, -8)
+        barra.Position = UDim2.new(0, 4, 0, 4)
+        barra.BackgroundColor3 = info.cor
+        barra.BorderSizePixel = 0
+        Instance.new("UICorner", barra).CornerRadius = UDim.new(0, 2)
+
+        local icoF = Instance.new("Frame", linha)
+        icoF.Size = UDim2.new(0, 32, 0, 32)
+        icoF.Position = UDim2.new(0, 12, 0.5, -16)
+        icoF.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+        icoF.BorderSizePixel = 0
+        Instance.new("UICorner", icoF).CornerRadius = UDim.new(0, 6)
+
+        local icoS = Instance.new("UIStroke", icoF)
+        icoS.Color = info.cor
+        icoS.Thickness = 1
+
+        local ico = Instance.new("ImageLabel", icoF)
+        ico.Size = UDim2.new(0.9, 0, 0.9, 0)
+        ico.Position = UDim2.new(0.05, 0, 0.05, 0)
+        ico.BackgroundTransparency = 1
+        ico.ScaleType = Enum.ScaleType.Fit
+        if info.icone then ico.Image = info.icone end
+
+        local nome = Instance.new("TextLabel", linha)
+        nome.Size = UDim2.new(1, -120, 0, 13)
+        nome.Position = UDim2.new(0, 52, 0, 4)
+        nome.BackgroundTransparency = 1
+        nome.Text = info.nome
+        nome.TextColor3 = info.cor
+        nome.Font = Enum.Font.GothamBlack
+        nome.TextSize = 11
+        nome.TextXAlignment = Enum.TextXAlignment.Left
+        nome.TextTruncate = Enum.TextTruncate.AtEnd
+
+        local rar = Instance.new("TextLabel", linha)
+        rar.Size = UDim2.new(1, -120, 0, 10)
+        rar.Position = UDim2.new(0, 52, 0, 18)
+        rar.BackgroundTransparency = 1
+        rar.Text = string.upper(info.raridade)
+        rar.TextColor3 = info.cor
+        rar.Font = Enum.Font.GothamBold
+        rar.TextSize = 8
+        rar.TextXAlignment = Enum.TextXAlignment.Left
+
+        local valor = Instance.new("TextLabel", linha)
+        valor.Size = UDim2.new(1, -120, 0, 11)
+        valor.Position = UDim2.new(0, 52, 0, 30)
+        valor.BackgroundTransparency = 1
+        valor.Text = AreaNome(item.areaId) .. " • $" .. FmtValor(item.valor) .. "/s"
+        valor.TextColor3 = C.success
+        valor.Font = Enum.Font.GothamBold
+        valor.TextSize = 9
+        valor.TextXAlignment = Enum.TextXAlignment.Left
+
+        if ehTop1 then
+            local coroa = Instance.new("TextLabel", linha)
+            coroa.Size = UDim2.new(0, 18, 0, 18)
+            coroa.Position = UDim2.new(1, -86, 0, 4)
+            coroa.BackgroundTransparency = 1
+            coroa.Text = "💰"
+            coroa.TextSize = 12
+        end
+
+        local goBtn = Instance.new("TextButton", linha)
+        goBtn.Size = UDim2.new(0, 48, 0, 26)
+        goBtn.Position = UDim2.new(1, -54, 0.5, -13)
+        goBtn.BackgroundColor3 = C.success
+        goBtn.Text = "GO"
+        goBtn.TextColor3 = C.text
+        goBtn.Font = Enum.Font.GothamBlack
+        goBtn.TextSize = 12
+        goBtn.BorderSizePixel = 0
+        goBtn.AutoButtonColor = false
+        Instance.new("UICorner", goBtn).CornerRadius = UDim.new(0, 6)
+
+        local gg = Instance.new("UIGradient", goBtn)
+        gg.Color = ColorSequence.new(C.success, C.accent2)
+
+        linha.MouseButton1Click:Connect(function()
+            ovoSelecionado = item
+            for _, c in ipairs(ScrollOvos:GetChildren()) do
+                if c:IsA("TextButton") then
+                    local s = c:FindFirstChildOfClass("UIStroke")
+                    if s then s.Color = C.border; s.Thickness = 1 end
+                end
+            end
+            stroke.Color = C.accent2; stroke.Thickness = 2
+            StatusTP.Text = "Selecionado: " .. info.nome
+            StatusTP.TextColor3 = C.text
+        end)
+
+        goBtn.MouseButton1Click:Connect(function()
+            if _G.TPIniciarIda then _G.TPIniciarIda(item) end
+        end)
+    end
+
+    StatusTP.Text = ("%d ovos%s"):format(
+        #ovosFiltrados,
+        algumFiltro and " (filtrado)" or "")
+    StatusTP.TextColor3 = C.textDim
+end
+
+_G.TPRenderLista = TPRenderLista
+
+local function TPVoar(destino, bv, bg, hrp)
+    local inicio = tick()
+    local fase = "subir"
+    local alvoAereo = Vector3.new(destino.X, destino.Y + 120, destino.Z)
+
+    while vooAtivo and (tick() - inicio) < 30 do
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local h   = char and char:FindFirstChild("HumanoidRootPart")
+        if not h or not hum or hum.Health <= 0 then return false end
+        hrp = h
+
+        local pos = hrp.Position
+
+        if fase == "subir" then
+            bv.Velocity = Vector3.new(0, 80, 0)
+            if pos.Y >= destino.Y + 110 then fase = "voar" end
+        elseif fase == "voar" then
+            local dir = alvoAereo - pos
+            if dir.Magnitude < 10 then fase = "descer"
+            else bv.Velocity = dir.Unit * 320 end
+        elseif fase == "descer" then
+            local dirXZ = Vector3.new(destino.X - pos.X, 0, destino.Z - pos.Z)
+            local dy = destino.Y - pos.Y
+            if math.abs(dy) < 4 and dirXZ.Magnitude < 6 then return true end
+            local v = Vector3.new(0, math.clamp(dy * 3, -60, 20), 0)
+            if dirXZ.Magnitude > 4 then
+                v = v + dirXZ.Unit * math.min(320, dirXZ.Magnitude * 4)
+            end
+            bv.Velocity = v
+        end
+        task.wait()
+    end
+    return false
+end
+
+local function TPIniciarIda(item)
+    if tpAndando then return end
+    if not item or not item.egg then return end
+    tpAndando = true
+    vooAtivo = true
+    BtnGO.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+    BtnGO.Text = "PARAR"
+
+    task.spawn(function()
+        -- DESATIVA BYPASS
+        Bypass.Reativar()
+        Bypass.Enabled = false
+        Bypass.Desativar()
+        task.wait(0.3)
+
+        local char = LP.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then
+            tpAndando = false; vooAtivo = false
+            BtnGO.BackgroundColor3 = C.success; BtnGO.Text = "GO (só ida)"
+            return
+        end
+
+        if not posicaoSalva then
+            posicaoSalva = hrp.Position
+            lblBase.Text = ("Base: %.0f, %.0f, %.0f"):format(
+                hrp.Position.X, hrp.Position.Y, hrp.Position.Z)
+        end
+        TP_posInicial = posicaoSalva
+
+        local destino
+        pcall(function()
+            if item.egg.BottomCFrame then
+                destino = item.egg.BottomCFrame.Position
+            end
+        end)
+        if not destino then
+            tpAndando = false; vooAtivo = false
+            BtnGO.BackgroundColor3 = C.success; BtnGO.Text = "GO (só ida)"
+            return
+        end
+
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.P = 1250
+        bv.Parent = hrp
+
+        local bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        bg.P = 3000
+        bg.D = 500
+        bg.CFrame = hrp.CFrame
+        bg.Parent = hrp
+
+        StatusTP.Text = "Indo pro ovo: " .. item.info.nome
+        StatusTP.TextColor3 = C.accent2
+
+        local chegou = TPVoar(destino, bv, bg, hrp)
+
+        if chegou then
+            StatusTP.Text = "PEGA O OVO e clica VOLTAR"
+            StatusTP.TextColor3 = C.ouro
+            pcall(function() bv:Destroy() end)
+            pcall(function() bg:Destroy() end)
+        else
+            StatusTP.Text = "Falhou em chegar"
+            StatusTP.TextColor3 = Color3.fromRGB(255,100,100)
+            pcall(function() bv:Destroy() end)
+            pcall(function() bg:Destroy() end)
+            vooAtivo = false
+            tpAndando = false
+            BtnGO.BackgroundColor3 = C.success; BtnGO.Text = "GO (só ida)"
+        end
+    end)
+end
+
+_G.TPIniciarIda = TPIniciarIda
+
+BtnGO.MouseButton1Click:Connect(function()
+    if tpAndando then
+        vooAtivo = false; tpAndando = false
+        BtnGO.BackgroundColor3 = C.success; BtnGO.Text = "GO (só ida)"
+        StatusTP.Text = "Cancelado"
+        return
+    end
+    local alvo = ovoSelecionado or ovosFiltrados[1]
+    if alvo then TPIniciarIda(alvo)
+    else StatusTP.Text = "Nenhum ovo" end
+end)
+
+BtnVoltar.MouseButton1Click:Connect(function()
+    if not tpAndando then
+        StatusTP.Text = "Aperta GO primeiro"
+        StatusTP.TextColor3 = C.ouro
+        return
+    end
+    if not TP_posInicial then
+        StatusTP.Text = "Sem posicao inicial"
+        return
+    end
+
+    StatusTP.Text = "Ativando bypass + voltando..."
+    StatusTP.TextColor3 = C.ouro
+
+    task.spawn(function()
+        Bypass.Reativar()
+        Bypass.Enabled = true
+        Bypass.Apply(LP.Character)
+        task.wait(0.5)
+        StatusTP.Text = "Bypass ativo — subindo"
+
+        local char = LP.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then return end
+
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.P = 8000
+        bv.Parent = hrp
+
+        local bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        bg.P = 3000
+        bg.D = 500
+        bg.CFrame = hrp.CFrame
+        bg.Parent = hrp
+
+        local tSobe = tick()
+        while (tick() - tSobe) < 0.5 do
+            if not hrp or not hrp.Parent then break end
+            bv.Velocity = Vector3.new(0, 300, 0)
+            if hrp.Position.Y >= TP_posInicial.Y + 80 then break end
+            task.wait()
+        end
+
+        local VELOCIDADE_VOLTA = 700
+        local alvoAereo = Vector3.new(TP_posInicial.X, TP_posInicial.Y + 120, TP_posInicial.Z)
+        local tVolta = tick()
+        local desceuNoLake = false
+        local ultimoBypassCheck = tick()
+
+        while (tick() - tVolta) < 30 do
+            if tick() - ultimoBypassCheck > 0.5 then
+                ultimoBypassCheck = tick()
+                if Bypass.IsActive and not Bypass.IsActive() then
+                    Bypass.Apply(LP.Character)
+                end
+            end
+
+            local areaId = LP:GetAttribute("AreaId")
+            if areaId == "Lake" and not desceuNoLake then
+                desceuNoLake = true
+                break
+            end
+
+            local c3 = LP.Character
+            local h3 = c3 and c3:FindFirstChild("HumanoidRootPart")
+            local hum3 = c3 and c3:FindFirstChildOfClass("Humanoid")
+            if not h3 or not hum3 or hum3.Health <= 0 then break end
+            hrp = h3
+
+            local pos = hrp.Position
+            local dy = TP_posInicial.Y - pos.Y
+            local distH = (Vector3.new(TP_posInicial.X, 0, TP_posInicial.Z)
+                         - Vector3.new(pos.X, 0, pos.Z)).Magnitude
+
+            if distH < 10 and math.abs(dy) < 10 then break end
+
+            local dirAereo = alvoAereo - pos
+            if dirAereo.Magnitude < 12 then
+                local v = Vector3.new(0, math.clamp(dy * 6, -150, 80), 0)
+                if distH > 4 then
+                    v = v + Vector3.new(TP_posInicial.X - pos.X, 0, TP_posInicial.Z - pos.Z).Unit
+                            * math.min(VELOCIDADE_VOLTA, distH * 5)
+                end
+                bv.Velocity = v
+            else
+                bv.Velocity = dirAereo.Unit * VELOCIDADE_VOLTA
+            end
+
+            StatusTP.Text = ("Voltando (bypass) • %dm"):format(math.floor(distH))
+            task.wait()
+        end
+
+        local tDesce = tick()
+        while (tick() - tDesce) < 2 do
+            if not hrp or not hrp.Parent then break end
+            bv.Velocity = Vector3.new(0, -200, 0)
+            if hrp.Position.Y <= 72 then break end
+            task.wait()
+        end
+
+        pcall(function() bv:Destroy() end)
+        pcall(function() bg:Destroy() end)
+        pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
+
+        local SafeZone = workspace:FindFirstChild("World")
+        SafeZone = SafeZone and SafeZone:FindFirstChild("Areas")
+        SafeZone = SafeZone and SafeZone:FindFirstChild("EggCarryBounds")
+        SafeZone = SafeZone and SafeZone:FindFirstChild("SafeZone")
+
+        if SafeZone then
+            StatusTP.Text = "Andando ate SafeZone..."
+            StatusTP.TextColor3 = C.success
+
+            local tAnda = tick()
+            local passos = 0
+            while (tick() - tAnda) < 90 do
+                local c = LP.Character
+                local h = c and c:FindFirstChild("HumanoidRootPart")
+                local hum = c and c:FindFirstChildOfClass("Humanoid")
+                if not h or not hum then break end
+
+                local d = (h.Position - SafeZone.Position).Magnitude
+                if d < 6 then
+                    StatusTP.Text = "Entregou ✅"
+                    StatusTP.TextColor3 = C.success
+                    break
+                end
+
+                hum:MoveTo(SafeZone.Position)
+                passos = passos + 1
+                if passos % 20 == 0 then
+                    local alt = SafeZone.Position + Vector3.new(
+                        math.random(-6,6), 0, math.random(-6,6))
+                    hum:MoveTo(alt)
+                end
+                StatusTP.Text = ("Andando • %dm"):format(math.floor(d))
+                task.wait(0.15)
+            end
+            pcall(function()
+                local c = LP.Character
+                local hum = c and c:FindFirstChildOfClass("Humanoid")
+                if hum then hum:MoveTo(hum.RootPart.Position) end
+            end)
+        end
+
+        vooAtivo = false
+        tpAndando = false
+        BtnGO.BackgroundColor3 = C.success; BtnGO.Text = "GO (só ida)"
+        StatusTP.Text = "Pronto ✅"
+        StatusTP.TextColor3 = C.success
+    end)
+end)
+
+BtnSalvar.MouseButton1Click:Connect(function()
+    local c = LP.Character
+    local h = c and c:FindFirstChild("HumanoidRootPart")
+    if h then
+        posicaoSalva = h.Position
+        lblBase.Text = ("Base: %.0f, %.0f, %.0f"):format(h.Position.X, h.Position.Y, h.Position.Z)
+        StatusTP.Text = "Base salva!"
+        StatusTP.TextColor3 = C.success
+        BtnSalvar.Text = "✓ SALVA!"
+        task.delay(1.5, function()
+            BtnSalvar.Text = "📍 SALVAR BASE"
+        end)
+    end
+end)
+
+BtnIrBase.MouseButton1Click:Connect(function()
+    if not posicaoSalva then
+        StatusTP.Text = "Nenhuma base salva"
+        return
+    end
+    task.spawn(function()
+        local c = LP.Character
+        local hrp = c and c:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.P = 10000
+        bv.Parent = hrp
+        local t0 = tick()
+        while (tick() - t0) < 20 do
+            if not hrp or not hrp.Parent then break end
+            local dir = posicaoSalva - hrp.Position
+            if dir.Magnitude < 8 then break end
+            bv.Velocity = dir.Unit * 400
+            task.wait()
+        end
+        pcall(function() bv:Destroy() end)
+        StatusTP.Text = "Na base ✅"
+        StatusTP.TextColor3 = C.success
+    end)
+end)
+
+-- TOGGLES
+local function ToggleAuto()
+    AutoBugAtivo = not AutoBugAtivo
+    if AutoBugAtivo then
+        TAuto.Text = "Auto Bug Boss  -  ON"
+        BtnAuto.BackgroundColor3 = C.success
+        GAuto.Color = ColorSequence.new(C.success, C.accent2)
+        Toast("Auto Bug ON", C.success)
+    else
+        TAuto.Text = "Auto Bug Boss  -  OFF"
+        BtnAuto.BackgroundColor3 = C.off
+        GAuto.Color = ColorSequence.new(C.off, C.off2)
+        Toast("Auto Bug OFF", C.warn)
+    end
+end
+
+local function ToggleAntiTrap()
+    AntiTrapAtivo = not AntiTrapAtivo
+    if AntiTrapAtivo then
+        TAT.Text = "Anti-Trap  -  Ativado"
+        BtnAT.BackgroundColor3 = C.success
+        GAT.Color = ColorSequence.new(C.success, C.accent2)
+    else
+        TAT.Text = "Anti-Trap  -  Desativado"
+        BtnAT.BackgroundColor3 = C.off
+        GAT.Color = ColorSequence.new(C.off, C.off2)
+    end
+end
+
+local function ToggleAutoBat()
+    CONFIG.AutoBat = not CONFIG.AutoBat
+    if CONFIG.AutoBat then
+        TBat.Text = "Auto Bat  -  ON"
+        BtnBat.BackgroundColor3 = C.success
+        GBat.Color = ColorSequence.new(C.success, C.accent2)
+    else
+        TBat.Text = "Auto Bat  -  OFF"
+        BtnBat.BackgroundColor3 = C.off
+        GBat.Color = ColorSequence.new(C.off, C.off2)
+    end
+end
+
+local function TogglePrior()
+    CONFIG.PriorizarOvo = not CONFIG.PriorizarOvo
+    if CONFIG.PriorizarOvo then
+        TPrior.Text = "Só bater com ovo  -  ON"
+        BtnPrior.BackgroundColor3 = C.success
+        GPrior.Color = ColorSequence.new(C.success, C.accent2)
+    else
+        TPrior.Text = "Só bater com ovo  -  OFF"
+        BtnPrior.BackgroundColor3 = C.off
+        GPrior.Color = ColorSequence.new(C.off, C.off2)
+    end
+end
+
+local function ToggleKB()
+    CONFIG.AntiKB = not CONFIG.AntiKB
+    if CONFIG.AntiKB then
+        TKB.Text = "Anti-Knockback  -  ON"
+        BtnKB.BackgroundColor3 = C.success
+        GKB.Color = ColorSequence.new(C.success, C.accent2)
+    else
+        TKB.Text = "Anti-Knockback  -  OFF"
+        BtnKB.BackgroundColor3 = C.off
+        GKB.Color = ColorSequence.new(C.off, C.off2)
+    end
+end
+
+local function ToggleESP()
+    CONFIG.ESP = not CONFIG.ESP
+    if CONFIG.ESP then
+        TESP.Text = "ESP Melhor Ovo  -  ON"
+        BtnESP.BackgroundColor3 = C.success
+        GESP.Color = ColorSequence.new(C.success, C.accent2)
+    else
+        TESP.Text = "ESP Melhor Ovo  -  OFF"
+        BtnESP.BackgroundColor3 = C.off
+        GESP.Color = ColorSequence.new(C.off, C.off2)
+    end
+end
+
+BtnAuto.MouseButton1Click:Connect(ToggleAuto)
+BtnManual.MouseButton1Click:Connect(function() IniciarAutoBug() end)
+BtnAT.MouseButton1Click:Connect(ToggleAntiTrap)
+BtnBat.MouseButton1Click:Connect(ToggleAutoBat)
+BtnPrior.MouseButton1Click:Connect(TogglePrior)
+BtnKB.MouseButton1Click:Connect(ToggleKB)
+BtnESP.MouseButton1Click:Connect(ToggleESP)
+
+local aberto = false
+
+local function abrir()
+    if aberto then return end
+    aberto = true
+    BtnFloat.Visible = false
+    Main.Visible = true
+    Main.Size = UDim2.new(0,0,0,0)
+    Main.Position = UDim2.new(0.5,0,0.5,0)
+    TS:Create(Main, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0,380,0,520),
+        Position = UDim2.new(0.5,-190,0.5,-260)
+    }):Play()
+    if _G.TPRenderLista then _G.TPRenderLista() end
+end
+
+local function fechar()
+    if not aberto then return end
+    aberto = false
+    local tw = TS:Create(Main, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        Size = UDim2.new(0,0,0,0),
+        Position = UDim2.new(0.5,0,0.5,0)
+    })
+    tw:Play()
+    tw.Completed:Connect(function()
+        Main.Visible = false
+        BtnFloat.Visible = true
+    end)
+end
+
+BtnMin.MouseButton1Click:Connect(fechar)
+BtnClose.MouseButton1Click:Connect(function() SG:Destroy() end)
+
+local arrastando, moveu, offset = false, false, Vector2.new()
+BtnFloat.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        arrastando = true; moveu = false
+        offset = Vector2.new(i.Position.X - BtnFloat.AbsolutePosition.X, i.Position.Y - BtnFloat.AbsolutePosition.Y)
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if arrastando and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        local np = Vector2.new(i.Position.X - offset.X, i.Position.Y - offset.Y)
+        if (np - BtnFloat.AbsolutePosition).Magnitude > 5 then moveu = true end
+        BtnFloat.Position = UDim2.new(0, np.X, 0, np.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        if arrastando and not moveu then abrir() end
+        arrastando = false
+    end
+end)
+
+UIS.InputBegan:Connect(function(i, gp)
+    if gp then return end
+    local k = i.KeyCode
+    if k == Enum.KeyCode.K then
+        if aberto then fechar() else abrir() end
+    elseif k == Enum.KeyCode.B then
+        IniciarAutoBug()
+    elseif k == Enum.KeyCode.T then
+        ToggleAntiTrap()
+    elseif k == Enum.KeyCode.G then
+        ToggleAutoBat()
+    elseif k == Enum.KeyCode.H then
+        ToggleKB()
+    elseif k == Enum.KeyCode.E then
+        ToggleESP()
+    end
+end)
+
+task.spawn(function()
+    task.wait(1)
+    if LP.Character then
+        Bypass.Enabled = true
+        Bypass.Apply(LP.Character)
+    end
+end)
+
+task.wait(0.5)
+abrir()
+
+print("[Croks Hub v13] Carregado")
+print("Atalhos: K/B/T/G/H/E")
